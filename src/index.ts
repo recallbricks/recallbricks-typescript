@@ -1,0 +1,409 @@
+import axios, { AxiosInstance, AxiosError } from 'axios';
+import {
+  RecallBricksConfig,
+  Memory,
+  CreateMemoryOptions,
+  ListMemoriesOptions,
+  ListMemoriesResponse,
+  SearchOptions,
+  SearchResponse,
+  RelationshipsResponse,
+  GraphContextResponse,
+  UpdateMemoryOptions,
+  RecallBricksError,
+  RetryConfig,
+  ApiError,
+} from './types';
+
+/**
+ * RecallBricks SDK Client
+ *
+ * Enterprise-grade TypeScript client for interacting with the RecallBricks API.
+ * Includes retry logic, timeout configuration, and comprehensive error handling.
+ *
+ * @example
+ * ```typescript
+ * const client = new RecallBricks({
+ *   apiKey: 'your-api-key',
+ *   timeout: 30000,
+ *   maxRetries: 3
+ * });
+ *
+ * const memory = await client.createMemory('Important information', {
+ *   tags: ['important'],
+ *   metadata: { source: 'user' }
+ * });
+ * ```
+ */
+export class RecallBricks {
+  private readonly client: AxiosInstance;
+  private readonly retryConfig: RetryConfig;
+
+  /**
+   * Creates a new RecallBricks client instance
+   *
+   * @param config - Configuration options for the client
+   * @throws {RecallBricksError} If API key is not provided
+   */
+  constructor(config: RecallBricksConfig) {
+    if (!config.apiKey) {
+      throw new RecallBricksError('API key is required', 400, 'MISSING_API_KEY');
+    }
+
+    const baseUrl = config.baseUrl || 'http://localhost:10002/api/v1';
+    const timeout = config.timeout || 30000;
+
+    this.client = axios.create({
+      baseURL: baseUrl,
+      timeout,
+      headers: {
+        'X-API-Key': config.apiKey,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    this.retryConfig = {
+      maxRetries: config.maxRetries || 3,
+      retryDelay: config.retryDelay || 1000,
+      maxRetryDelay: config.maxRetryDelay || 10000,
+    };
+  }
+
+  /**
+   * Determines if an error is retryable
+   *
+   * @param error - The error to check
+   * @returns True if the error should trigger a retry
+   */
+  private isRetryableError(error: AxiosError): boolean {
+    if (!error.response) {
+      // Network errors are retryable
+      return true;
+    }
+
+    const status = error.response.status;
+    // Retry on 429 (rate limit), 500, 502, 503, 504
+    return status === 429 || (status >= 500 && status <= 504);
+  }
+
+  /**
+   * Calculates exponential backoff delay
+   *
+   * @param attempt - Current attempt number (0-indexed)
+   * @returns Delay in milliseconds
+   */
+  private calculateBackoff(attempt: number): number {
+    const delay = this.retryConfig.retryDelay * Math.pow(2, attempt);
+    return Math.min(delay, this.retryConfig.maxRetryDelay);
+  }
+
+  /**
+   * Sleeps for a specified duration
+   *
+   * @param ms - Milliseconds to sleep
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Executes an HTTP request with retry logic
+   *
+   * @param requestFn - Function that makes the HTTP request
+   * @returns The response data
+   * @throws {RecallBricksError} If the request fails after all retries
+   */
+  private async executeWithRetry<T>(
+    requestFn: () => Promise<T>
+  ): Promise<T> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
+      try {
+        return await requestFn();
+      } catch (error) {
+        lastError = error as Error;
+
+        // Check if this is an axios error and if it's retryable
+        if (axios.isAxiosError(error)) {
+          if (!this.isRetryableError(error)) {
+            // Not retryable, throw immediately
+            throw this.handleAxiosError(error);
+          }
+
+          // If we've exhausted retries, throw
+          if (attempt === this.retryConfig.maxRetries) {
+            throw this.handleAxiosError(error);
+          }
+
+          // Calculate backoff and retry
+          const backoff = this.calculateBackoff(attempt);
+          await this.sleep(backoff);
+        } else {
+          // Non-axios error, throw immediately
+          throw error;
+        }
+      }
+    }
+
+    // Should never reach here, but just in case
+    throw lastError || new RecallBricksError('Request failed after retries', 500);
+  }
+
+  /**
+   * Handles Axios errors and converts them to RecallBricksError
+   *
+   * @param error - The Axios error
+   * @returns A RecallBricksError instance
+   */
+  private handleAxiosError(error: AxiosError): RecallBricksError {
+    if (error.response) {
+      const data = error.response.data as ApiError;
+      return new RecallBricksError(
+        data.error || error.message,
+        error.response.status,
+        data.code,
+        data.details
+      );
+    } else if (error.request) {
+      return new RecallBricksError(
+        'No response received from server',
+        0,
+        'NO_RESPONSE'
+      );
+    } else {
+      return new RecallBricksError(
+        error.message,
+        0,
+        'REQUEST_SETUP_ERROR'
+      );
+    }
+  }
+
+  /**
+   * Creates a new memory
+   *
+   * @param text - The text content of the memory
+   * @param options - Optional metadata, tags, and timestamp
+   * @returns The created memory
+   * @throws {RecallBricksError} If the request fails
+   *
+   * @example
+   * ```typescript
+   * const memory = await client.createMemory('User prefers dark mode', {
+   *   tags: ['preference', 'ui'],
+   *   metadata: { userId: '123' }
+   * });
+   * ```
+   */
+  async createMemory(text: string, options?: CreateMemoryOptions): Promise<Memory> {
+    if (!text || text.trim().length === 0) {
+      throw new RecallBricksError('Text is required', 400, 'INVALID_INPUT');
+    }
+
+    return this.executeWithRetry(async () => {
+      const response = await this.client.post<Memory>('/memories', {
+        text,
+        ...options,
+      });
+      return response.data;
+    });
+  }
+
+  /**
+   * Lists memories with optional filtering and pagination
+   *
+   * @param options - Filtering and pagination options
+   * @returns List of memories with pagination info
+   * @throws {RecallBricksError} If the request fails
+   *
+   * @example
+   * ```typescript
+   * const result = await client.listMemories({
+   *   limit: 10,
+   *   offset: 0,
+   *   tags: ['important'],
+   *   sort: 'desc'
+   * });
+   * ```
+   */
+  async listMemories(options?: ListMemoriesOptions): Promise<ListMemoriesResponse> {
+    return this.executeWithRetry(async () => {
+      const params: Record<string, string | number> = {};
+
+      if (options?.limit !== undefined) params.limit = options.limit;
+      if (options?.offset !== undefined) params.offset = options.offset;
+      if (options?.sort) params.sort = options.sort;
+      if (options?.sortBy) params.sortBy = options.sortBy;
+      if (options?.tags) params.tags = options.tags.join(',');
+      if (options?.metadata) params.metadata = JSON.stringify(options.metadata);
+
+      const response = await this.client.get<ListMemoriesResponse>('/memories', { params });
+      return response.data;
+    });
+  }
+
+  /**
+   * Searches for memories using semantic search
+   *
+   * @param query - The search query
+   * @param options - Search options (limit, threshold, filters)
+   * @returns Search results with similarity scores
+   * @throws {RecallBricksError} If the request fails
+   *
+   * @example
+   * ```typescript
+   * const results = await client.search('user preferences', {
+   *   limit: 5,
+   *   threshold: 0.7,
+   *   tags: ['preference']
+   * });
+   * ```
+   */
+  async search(query: string, options?: SearchOptions): Promise<SearchResponse> {
+    if (!query || query.trim().length === 0) {
+      throw new RecallBricksError('Query is required', 400, 'INVALID_INPUT');
+    }
+
+    return this.executeWithRetry(async () => {
+      const payload: Record<string, unknown> = { query };
+
+      if (options?.limit !== undefined) payload.limit = options.limit;
+      if (options?.threshold !== undefined) payload.threshold = options.threshold;
+      if (options?.tags) payload.tags = options.tags;
+      if (options?.metadata) payload.metadata = options.metadata;
+
+      const response = await this.client.post<SearchResponse>('/memories/search', payload);
+      return response.data;
+    });
+  }
+
+  /**
+   * Gets all relationships for a specific memory
+   *
+   * @param memoryId - The ID of the memory
+   * @returns Incoming and outgoing relationships
+   * @throws {RecallBricksError} If the request fails
+   *
+   * @example
+   * ```typescript
+   * const relationships = await client.getRelationships('memory-123');
+   * console.log(`Outgoing: ${relationships.outgoing.length}`);
+   * console.log(`Incoming: ${relationships.incoming.length}`);
+   * ```
+   */
+  async getRelationships(memoryId: string): Promise<RelationshipsResponse> {
+    if (!memoryId || memoryId.trim().length === 0) {
+      throw new RecallBricksError('Memory ID is required', 400, 'INVALID_INPUT');
+    }
+
+    return this.executeWithRetry(async () => {
+      const response = await this.client.get<RelationshipsResponse>(
+        `/memories/${memoryId}/relationships`
+      );
+      return response.data;
+    });
+  }
+
+  /**
+   * Gets the graph context around a memory up to a specified depth
+   *
+   * @param memoryId - The root memory ID
+   * @param depth - Maximum depth to traverse (default: 2)
+   * @returns Graph context with nodes and relationships
+   * @throws {RecallBricksError} If the request fails
+   *
+   * @example
+   * ```typescript
+   * const graph = await client.getGraphContext('memory-123', 3);
+   * console.log(`Found ${graph.total_nodes} related nodes`);
+   * ```
+   */
+  async getGraphContext(memoryId: string, depth: number = 2): Promise<GraphContextResponse> {
+    if (!memoryId || memoryId.trim().length === 0) {
+      throw new RecallBricksError('Memory ID is required', 400, 'INVALID_INPUT');
+    }
+
+    if (depth < 1 || depth > 10) {
+      throw new RecallBricksError('Depth must be between 1 and 10', 400, 'INVALID_INPUT');
+    }
+
+    return this.executeWithRetry(async () => {
+      const response = await this.client.get<GraphContextResponse>(
+        `/memories/${memoryId}/graph`,
+        { params: { depth } }
+      );
+      return response.data;
+    });
+  }
+
+  /**
+   * Deletes a memory by ID
+   *
+   * @param memoryId - The ID of the memory to delete
+   * @returns True if deletion was successful
+   * @throws {RecallBricksError} If the request fails
+   *
+   * @example
+   * ```typescript
+   * await client.deleteMemory('memory-123');
+   * console.log('Memory deleted successfully');
+   * ```
+   */
+  async deleteMemory(memoryId: string): Promise<boolean> {
+    if (!memoryId || memoryId.trim().length === 0) {
+      throw new RecallBricksError('Memory ID is required', 400, 'INVALID_INPUT');
+    }
+
+    return this.executeWithRetry(async () => {
+      await this.client.delete(`/memories/${memoryId}`);
+      return true;
+    });
+  }
+
+  /**
+   * Updates an existing memory
+   *
+   * @param memoryId - The ID of the memory to update
+   * @param updates - Fields to update (text, metadata, tags)
+   * @returns The updated memory
+   * @throws {RecallBricksError} If the request fails
+   *
+   * @example
+   * ```typescript
+   * const updated = await client.updateMemory('memory-123', {
+   *   text: 'Updated text',
+   *   tags: ['updated', 'important'],
+   *   metadata: { version: 2 }
+   * });
+   * ```
+   */
+  async updateMemory(memoryId: string, updates: UpdateMemoryOptions): Promise<Memory> {
+    if (!memoryId || memoryId.trim().length === 0) {
+      throw new RecallBricksError('Memory ID is required', 400, 'INVALID_INPUT');
+    }
+
+    if (!updates || Object.keys(updates).length === 0) {
+      throw new RecallBricksError('Updates are required', 400, 'INVALID_INPUT');
+    }
+
+    // Validate that text is not empty if provided
+    if (updates.text !== undefined && updates.text.trim().length === 0) {
+      throw new RecallBricksError('Text cannot be empty', 400, 'INVALID_INPUT');
+    }
+
+    return this.executeWithRetry(async () => {
+      const response = await this.client.patch<Memory>(
+        `/memories/${memoryId}`,
+        updates
+      );
+      return response.data;
+    });
+  }
+}
+
+// Export all types
+export * from './types';
+
+// Export as default as well
+export default RecallBricks;
