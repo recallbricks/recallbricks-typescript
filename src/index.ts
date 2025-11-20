@@ -13,6 +13,15 @@ import {
   RecallBricksError,
   RetryConfig,
   ApiError,
+  // Phase 2A: Metacognition Features
+  PredictMemoriesOptions,
+  PredictMemoriesResponse,
+  SuggestMemoriesOptions,
+  SuggestMemoriesResponse,
+  LearningMetrics,
+  PatternAnalysis,
+  SearchWeightedOptions,
+  SearchWeightedResponse,
 } from './types';
 
 /**
@@ -396,6 +405,187 @@ export class RecallBricks {
       const response = await this.client.patch<Memory>(
         `/memories/${memoryId}`,
         updates
+      );
+      return response.data;
+    });
+  }
+
+  // ============================================================================
+  // Phase 2A: Metacognition Features
+  // ============================================================================
+
+  /**
+   * Predicts memories that might be needed based on context and recent usage
+   *
+   * @param options - Options for prediction (context, recentMemoryIds, limit)
+   * @returns Predicted memories with confidence scores
+   * @throws {RecallBricksError} If the request fails
+   *
+   * @example
+   * ```typescript
+   * const predictions = await client.predictMemories({
+   *   context: 'working on authentication',
+   *   limit: 5
+   * });
+   * ```
+   */
+  async predictMemories(options?: PredictMemoriesOptions): Promise<PredictMemoriesResponse> {
+    return this.executeWithRetry(async () => {
+      const payload: Record<string, unknown> = {};
+
+      if (options?.context) payload.context = options.context;
+      if (options?.recentMemoryIds) payload.recent_memory_ids = options.recentMemoryIds;
+      if (options?.limit !== undefined) payload.limit = options.limit;
+
+      const response = await this.client.post<PredictMemoriesResponse>(
+        '/memories/predict',
+        payload
+      );
+      return response.data;
+    });
+  }
+
+  /**
+   * Suggests relevant memories based on the provided context
+   *
+   * @param context - Context to base suggestions on
+   * @param options - Options for suggestions (limit, minConfidence, includeReasoning)
+   * @returns Suggested memories with confidence scores
+   * @throws {RecallBricksError} If the request fails
+   *
+   * @example
+   * ```typescript
+   * const suggestions = await client.suggestMemories('user authentication flow', {
+   *   limit: 10,
+   *   minConfidence: 0.7,
+   *   includeReasoning: true
+   * });
+   * ```
+   */
+  async suggestMemories(
+    context: string,
+    options?: SuggestMemoriesOptions
+  ): Promise<SuggestMemoriesResponse> {
+    if (!context || context.trim().length === 0) {
+      throw new RecallBricksError('Context is required', 400, 'INVALID_INPUT');
+    }
+
+    return this.executeWithRetry(async () => {
+      const payload: Record<string, unknown> = { context };
+
+      if (options?.limit !== undefined) payload.limit = options.limit;
+      if (options?.minConfidence !== undefined) payload.min_confidence = options.minConfidence;
+      if (options?.includeReasoning !== undefined) {
+        payload.include_reasoning = options.includeReasoning;
+      }
+
+      const response = await this.client.post<SuggestMemoriesResponse>(
+        '/memories/suggest',
+        payload
+      );
+      return response.data;
+    });
+  }
+
+  /**
+   * Gets learning metrics for the system over a specified time period
+   *
+   * @param days - Number of days to analyze (default: 30)
+   * @returns Learning metrics including helpfulness, usage, and trends
+   * @throws {RecallBricksError} If the request fails
+   *
+   * @example
+   * ```typescript
+   * const metrics = await client.getLearningMetrics(7);
+   * console.log(`Average helpfulness: ${metrics.avg_helpfulness}`);
+   * console.log(`Total usage: ${metrics.total_usage}`);
+   * ```
+   */
+  async getLearningMetrics(days: number = 30): Promise<LearningMetrics> {
+    if (days < 1) {
+      throw new RecallBricksError('Days must be at least 1', 400, 'INVALID_INPUT');
+    }
+
+    return this.executeWithRetry(async () => {
+      const response = await this.client.get<LearningMetrics>('/analytics/learning-metrics', {
+        params: { days },
+      });
+      return response.data;
+    });
+  }
+
+  /**
+   * Gets pattern analysis for memory access over a specified time period
+   *
+   * @param days - Number of days to analyze (default: 30)
+   * @returns Pattern analysis including frequently accessed memories and co-access patterns
+   * @throws {RecallBricksError} If the request fails
+   *
+   * @example
+   * ```typescript
+   * const patterns = await client.getPatterns(14);
+   * console.log(`Frequently accessed: ${patterns.frequently_accessed.length}`);
+   * console.log(`Co-access patterns: ${patterns.co_access_patterns.length}`);
+   * ```
+   */
+  async getPatterns(days: number = 30): Promise<PatternAnalysis> {
+    if (days < 1) {
+      throw new RecallBricksError('Days must be at least 1', 400, 'INVALID_INPUT');
+    }
+
+    return this.executeWithRetry(async () => {
+      const response = await this.client.get<PatternAnalysis>('/analytics/patterns', {
+        params: { days },
+      });
+      return response.data;
+    });
+  }
+
+  /**
+   * Performs a weighted search that combines semantic similarity with usage patterns
+   *
+   * @param query - The search query
+   * @param options - Search options (limit, weighting options, filtering)
+   * @returns Weighted search results with relevance scores
+   * @throws {RecallBricksError} If the request fails
+   *
+   * @example
+   * ```typescript
+   * const results = await client.searchWeighted('authentication logic', {
+   *   limit: 10,
+   *   weightByUsage: true,
+   *   decayOldMemories: true,
+   *   adaptiveWeights: true,
+   *   minHelpfulnessScore: 0.5
+   * });
+   * ```
+   */
+  async searchWeighted(
+    query: string,
+    options?: SearchWeightedOptions
+  ): Promise<SearchWeightedResponse> {
+    if (!query || query.trim().length === 0) {
+      throw new RecallBricksError('Query is required', 400, 'INVALID_INPUT');
+    }
+
+    return this.executeWithRetry(async () => {
+      const payload: Record<string, unknown> = { query };
+
+      if (options?.limit !== undefined) payload.limit = options.limit;
+      if (options?.weightByUsage !== undefined) payload.weight_by_usage = options.weightByUsage;
+      if (options?.decayOldMemories !== undefined) {
+        payload.decay_old_memories = options.decayOldMemories;
+      }
+      if (options?.adaptiveWeights !== undefined) {
+        payload.adaptive_weights = options.adaptiveWeights;
+      }
+      if (options?.minHelpfulnessScore !== undefined) {
+        payload.min_helpfulness_score = options.minHelpfulnessScore;
+      }
+
+      const response = await this.client.post<SearchWeightedResponse>(
+        '/memories/search-weighted',
+        payload
       );
       return response.data;
     });

@@ -34,7 +34,8 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "axios": "^1.6.5"
+    "axios": "^1.6.5",
+    "recallbricks": "^0.1.1"
   },
   "engines": {
     "node": ">=16.0.0"
