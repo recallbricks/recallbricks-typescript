@@ -47,26 +47,48 @@ import {
 export class RecallBricks {
   private readonly client: AxiosInstance;
   private readonly retryConfig: RetryConfig;
+  private readonly usingServiceToken: boolean;
 
   /**
    * Creates a new RecallBricks client instance
    *
    * @param config - Configuration options for the client
-   * @throws {RecallBricksError} If API key is not provided
+   * @throws {RecallBricksError} If authentication is not properly configured
    */
   constructor(config: RecallBricksConfig) {
-    if (!config.apiKey) {
-      throw new RecallBricksError('API key is required', 400, 'MISSING_API_KEY');
+    // Validate exactly one auth method is provided
+    if (!config.apiKey && !config.serviceToken) {
+      throw new RecallBricksError(
+        'Either apiKey or serviceToken must be provided',
+        400,
+        'MISSING_AUTH'
+      );
+    }
+
+    if (config.apiKey && config.serviceToken) {
+      throw new RecallBricksError(
+        'Provide either apiKey or serviceToken, not both',
+        400,
+        'INVALID_AUTH_CONFIG'
+      );
     }
 
     const baseUrl = config.baseUrl || 'http://localhost:10002/api/v1';
     const timeout = config.timeout || 30000;
 
+    // Store which auth type we're using
+    this.usingServiceToken = !!config.serviceToken;
+
+    // Set up headers based on auth type
+    const authHeader = config.serviceToken
+      ? { 'X-Service-Token': config.serviceToken }
+      : { 'X-API-Key': config.apiKey! };
+
     this.client = axios.create({
       baseURL: baseUrl,
       timeout,
       headers: {
-        'X-API-Key': config.apiKey,
+        ...authHeader,
         'Content-Type': 'application/json',
       },
     });
@@ -76,6 +98,22 @@ export class RecallBricks {
       retryDelay: config.retryDelay || 1000,
       maxRetryDelay: config.maxRetryDelay || 10000,
     };
+  }
+
+  /**
+   * Validates that userId is provided when using service token authentication
+   *
+   * @param userId - The user ID to validate
+   * @throws {RecallBricksError} If service token is being used but userId is not provided
+   */
+  private validateUserId(userId?: string): void {
+    if (this.usingServiceToken && !userId) {
+      throw new RecallBricksError(
+        'userId is required when using service token authentication',
+        400,
+        'MISSING_USER_ID'
+      );
+    }
   }
 
   /**
@@ -193,15 +231,22 @@ export class RecallBricks {
    * Creates a new memory
    *
    * @param text - The text content of the memory
-   * @param options - Optional metadata, tags, and timestamp
+   * @param options - Optional metadata, tags, timestamp, and userId (required for service tokens)
    * @returns The created memory
    * @throws {RecallBricksError} If the request fails
    *
    * @example
    * ```typescript
+   * // With API key
    * const memory = await client.createMemory('User prefers dark mode', {
    *   tags: ['preference', 'ui'],
    *   metadata: { userId: '123' }
+   * });
+   *
+   * // With service token
+   * const memory = await client.createMemory('User prefers dark mode', {
+   *   userId: 'user-123',
+   *   tags: ['preference', 'ui']
    * });
    * ```
    */
@@ -210,11 +255,17 @@ export class RecallBricks {
       throw new RecallBricksError('Text is required', 400, 'INVALID_INPUT');
     }
 
+    this.validateUserId(options?.userId);
+
     return this.executeWithRetry(async () => {
-      const response = await this.client.post<Memory>('/memories', {
-        text,
-        ...options,
-      });
+      const payload: Record<string, unknown> = { text };
+
+      if (options?.userId) payload.user_id = options.userId;
+      if (options?.metadata) payload.metadata = options.metadata;
+      if (options?.tags) payload.tags = options.tags;
+      if (options?.timestamp) payload.timestamp = options.timestamp;
+
+      const response = await this.client.post<Memory>('/memories', payload);
       return response.data;
     });
   }
@@ -222,24 +273,35 @@ export class RecallBricks {
   /**
    * Lists memories with optional filtering and pagination
    *
-   * @param options - Filtering and pagination options
+   * @param options - Filtering, pagination options, and userId (required for service tokens)
    * @returns List of memories with pagination info
    * @throws {RecallBricksError} If the request fails
    *
    * @example
    * ```typescript
+   * // With API key
    * const result = await client.listMemories({
    *   limit: 10,
    *   offset: 0,
    *   tags: ['important'],
    *   sort: 'desc'
    * });
+   *
+   * // With service token
+   * const result = await client.listMemories({
+   *   userId: 'user-123',
+   *   limit: 10,
+   *   tags: ['important']
+   * });
    * ```
    */
   async listMemories(options?: ListMemoriesOptions): Promise<ListMemoriesResponse> {
+    this.validateUserId(options?.userId);
+
     return this.executeWithRetry(async () => {
       const params: Record<string, string | number> = {};
 
+      if (options?.userId) params.user_id = options.userId;
       if (options?.limit !== undefined) params.limit = options.limit;
       if (options?.offset !== undefined) params.offset = options.offset;
       if (options?.sort) params.sort = options.sort;
@@ -256,16 +318,24 @@ export class RecallBricks {
    * Searches for memories using semantic search
    *
    * @param query - The search query
-   * @param options - Search options (limit, threshold, filters)
+   * @param options - Search options (limit, threshold, filters, userId for service tokens)
    * @returns Search results with similarity scores
    * @throws {RecallBricksError} If the request fails
    *
    * @example
    * ```typescript
+   * // With API key
    * const results = await client.search('user preferences', {
    *   limit: 5,
    *   threshold: 0.7,
    *   tags: ['preference']
+   * });
+   *
+   * // With service token
+   * const results = await client.search('user preferences', {
+   *   userId: 'user-123',
+   *   limit: 5,
+   *   threshold: 0.7
    * });
    * ```
    */
@@ -274,9 +344,12 @@ export class RecallBricks {
       throw new RecallBricksError('Query is required', 400, 'INVALID_INPUT');
     }
 
+    this.validateUserId(options?.userId);
+
     return this.executeWithRetry(async () => {
       const payload: Record<string, unknown> = { query };
 
+      if (options?.userId) payload.user_id = options.userId;
       if (options?.limit !== undefined) payload.limit = options.limit;
       if (options?.threshold !== undefined) payload.threshold = options.threshold;
       if (options?.tags) payload.tags = options.tags;
@@ -417,22 +490,33 @@ export class RecallBricks {
   /**
    * Predicts memories that might be needed based on context and recent usage
    *
-   * @param options - Options for prediction (context, recentMemoryIds, limit)
+   * @param options - Options for prediction (context, recentMemoryIds, limit, userId for service tokens)
    * @returns Predicted memories with confidence scores
    * @throws {RecallBricksError} If the request fails
    *
    * @example
    * ```typescript
+   * // With API key
    * const predictions = await client.predictMemories({
+   *   context: 'working on authentication',
+   *   limit: 5
+   * });
+   *
+   * // With service token
+   * const predictions = await client.predictMemories({
+   *   userId: 'user-123',
    *   context: 'working on authentication',
    *   limit: 5
    * });
    * ```
    */
   async predictMemories(options?: PredictMemoriesOptions): Promise<PredictMemoriesResponse> {
+    this.validateUserId(options?.userId);
+
     return this.executeWithRetry(async () => {
       const payload: Record<string, unknown> = {};
 
+      if (options?.userId) payload.user_id = options.userId;
       if (options?.context) payload.context = options.context;
       if (options?.recentMemoryIds) payload.recent_memory_ids = options.recentMemoryIds;
       if (options?.limit !== undefined) payload.limit = options.limit;
@@ -449,16 +533,24 @@ export class RecallBricks {
    * Suggests relevant memories based on the provided context
    *
    * @param context - Context to base suggestions on
-   * @param options - Options for suggestions (limit, minConfidence, includeReasoning)
+   * @param options - Options for suggestions (limit, minConfidence, includeReasoning, userId for service tokens)
    * @returns Suggested memories with confidence scores
    * @throws {RecallBricksError} If the request fails
    *
    * @example
    * ```typescript
+   * // With API key
    * const suggestions = await client.suggestMemories('user authentication flow', {
    *   limit: 10,
    *   minConfidence: 0.7,
    *   includeReasoning: true
+   * });
+   *
+   * // With service token
+   * const suggestions = await client.suggestMemories('user authentication flow', {
+   *   userId: 'user-123',
+   *   limit: 10,
+   *   minConfidence: 0.7
    * });
    * ```
    */
@@ -470,9 +562,12 @@ export class RecallBricks {
       throw new RecallBricksError('Context is required', 400, 'INVALID_INPUT');
     }
 
+    this.validateUserId(options?.userId);
+
     return this.executeWithRetry(async () => {
       const payload: Record<string, unknown> = { context };
 
+      if (options?.userId) payload.user_id = options.userId;
       if (options?.limit !== undefined) payload.limit = options.limit;
       if (options?.minConfidence !== undefined) payload.min_confidence = options.minConfidence;
       if (options?.includeReasoning !== undefined) {
@@ -545,18 +640,26 @@ export class RecallBricks {
    * Performs a weighted search that combines semantic similarity with usage patterns
    *
    * @param query - The search query
-   * @param options - Search options (limit, weighting options, filtering)
+   * @param options - Search options (limit, weighting options, filtering, userId for service tokens)
    * @returns Weighted search results with relevance scores
    * @throws {RecallBricksError} If the request fails
    *
    * @example
    * ```typescript
+   * // With API key
    * const results = await client.searchWeighted('authentication logic', {
    *   limit: 10,
    *   weightByUsage: true,
    *   decayOldMemories: true,
    *   adaptiveWeights: true,
    *   minHelpfulnessScore: 0.5
+   * });
+   *
+   * // With service token
+   * const results = await client.searchWeighted('authentication logic', {
+   *   userId: 'user-123',
+   *   limit: 10,
+   *   weightByUsage: true
    * });
    * ```
    */
@@ -568,9 +671,12 @@ export class RecallBricks {
       throw new RecallBricksError('Query is required', 400, 'INVALID_INPUT');
     }
 
+    this.validateUserId(options?.userId);
+
     return this.executeWithRetry(async () => {
       const payload: Record<string, unknown> = { query };
 
+      if (options?.userId) payload.user_id = options.userId;
       if (options?.limit !== undefined) payload.limit = options.limit;
       if (options?.weightByUsage !== undefined) payload.weight_by_usage = options.weightByUsage;
       if (options?.decayOldMemories !== undefined) {

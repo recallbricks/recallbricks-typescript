@@ -2,8 +2,10 @@
  * Configuration options for the RecallBricks client
  */
 export interface RecallBricksConfig {
-  /** API key for authentication */
-  apiKey: string;
+  /** API key for authentication (required if serviceToken not provided) */
+  apiKey?: string;
+  /** Service token for server-to-server authentication (required if apiKey not provided) */
+  serviceToken?: string;
   /** Base URL for the API (default: http://localhost:10002/api/v1) */
   baseUrl?: string;
   /** Request timeout in milliseconds (default: 30000) */
@@ -27,6 +29,8 @@ export interface MemoryMetadata {
  * Options for creating a memory
  */
 export interface CreateMemoryOptions {
+  /** User ID (required when using service token authentication) */
+  userId?: string;
   /** Metadata to associate with the memory */
   metadata?: MemoryMetadata;
   /** Tags for categorizing the memory */
@@ -59,6 +63,8 @@ export interface Memory {
  * Options for listing memories
  */
 export interface ListMemoriesOptions {
+  /** User ID (required when using service token authentication) */
+  userId?: string;
   /** Maximum number of memories to return */
   limit?: number;
   /** Offset for pagination */
@@ -91,6 +97,8 @@ export interface ListMemoriesResponse {
  * Options for searching memories
  */
 export interface SearchOptions {
+  /** User ID (required when using service token authentication) */
+  userId?: string;
   /** Maximum number of results to return */
   limit?: number;
   /** Minimum similarity threshold (0-1) */
@@ -237,6 +245,8 @@ export interface RetryConfig {
  * Options for predicting future memory needs
  */
 export interface PredictMemoriesOptions {
+  /** User ID (required when using service token authentication) */
+  userId?: string;
   /** Context to base predictions on */
   context?: string;
   /** IDs of recent memories to analyze */
@@ -271,6 +281,8 @@ export interface PredictMemoriesResponse {
  * Options for suggesting relevant memories
  */
 export interface SuggestMemoriesOptions {
+  /** User ID (required when using service token authentication) */
+  userId?: string;
   /** Maximum number of suggestions to return */
   limit?: number;
   /** Minimum confidence threshold (0-1) */
@@ -379,6 +391,8 @@ export interface PatternAnalysis {
  * Options for weighted search
  */
 export interface SearchWeightedOptions {
+  /** User ID (required when using service token authentication) */
+  userId?: string;
   /** Maximum number of results to return */
   limit?: number;
   /** Weight results by usage frequency */

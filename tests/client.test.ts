@@ -10,14 +10,24 @@ describe('RecallBricks Client', () => {
   });
 
   describe('Initialization', () => {
-    it('should create client with valid config', () => {
+    it('should create client with valid API key', () => {
       const client = new RecallBricks({ apiKey });
       expect(client).toBeInstanceOf(RecallBricks);
     });
 
-    it('should throw error when API key is missing', () => {
-      expect(() => new RecallBricks({ apiKey: '' })).toThrow(RecallBricksError);
-      expect(() => new RecallBricks({ apiKey: '' })).toThrow('API key is required');
+    it('should create client with valid service token', () => {
+      const client = new RecallBricks({ serviceToken: 'test-service-token' });
+      expect(client).toBeInstanceOf(RecallBricks);
+    });
+
+    it('should throw error when neither API key nor service token is provided', () => {
+      expect(() => new RecallBricks({})).toThrow(RecallBricksError);
+      expect(() => new RecallBricks({})).toThrow('Either apiKey or serviceToken must be provided');
+    });
+
+    it('should throw error when both API key and service token are provided', () => {
+      expect(() => new RecallBricks({ apiKey, serviceToken: 'test-token' })).toThrow(RecallBricksError);
+      expect(() => new RecallBricks({ apiKey, serviceToken: 'test-token' })).toThrow('Provide either apiKey or serviceToken, not both');
     });
 
     it('should use default base URL when not provided', () => {
@@ -205,6 +215,173 @@ describe('RecallBricks Client', () => {
 
       // Should have some delay due to retries (at least 10ms + 20ms)
       expect(duration).toBeGreaterThanOrEqual(20);
+    });
+  });
+
+  describe('Service Token Authentication', () => {
+    const serviceToken = 'test-service-token';
+    let client: RecallBricks;
+
+    beforeEach(() => {
+      client = new RecallBricks({ serviceToken, baseUrl, maxRetries: 0 });
+    });
+
+    it('should include X-Service-Token header in requests', async () => {
+      const memory = { id: '123', text: 'test', created_at: '2025-01-01', updated_at: '2025-01-01' };
+
+      nock(baseUrl, {
+        reqheaders: {
+          'X-Service-Token': serviceToken,
+        },
+      })
+        .post('/memories')
+        .reply(200, memory);
+
+      await client.createMemory('test', { userId: 'user-123' });
+      expect(nock.isDone()).toBe(true);
+    });
+
+    it('should require userId when creating memory with service token', async () => {
+      await expect(client.createMemory('test')).rejects.toThrow(RecallBricksError);
+      await expect(client.createMemory('test')).rejects.toThrow('userId is required when using service token authentication');
+    });
+
+    it('should accept userId when creating memory with service token', async () => {
+      const memory = { id: '123', text: 'test', created_at: '2025-01-01', updated_at: '2025-01-01' };
+
+      nock(baseUrl)
+        .post('/memories', (body) => {
+          return body.text === 'test' && body.user_id === 'user-123';
+        })
+        .reply(200, memory);
+
+      const result = await client.createMemory('test', { userId: 'user-123' });
+      expect(result).toEqual(memory);
+    });
+
+    it('should require userId when listing memories with service token', async () => {
+      await expect(client.listMemories()).rejects.toThrow(RecallBricksError);
+      await expect(client.listMemories()).rejects.toThrow('userId is required when using service token authentication');
+    });
+
+    it('should accept userId when listing memories with service token', async () => {
+      const response = { memories: [], total: 0, limit: 10, offset: 0 };
+
+      nock(baseUrl)
+        .get('/memories')
+        .query({ user_id: 'user-123' })
+        .reply(200, response);
+
+      const result = await client.listMemories({ userId: 'user-123' });
+      expect(result).toEqual(response);
+    });
+
+    it('should require userId when searching with service token', async () => {
+      await expect(client.search('test query')).rejects.toThrow(RecallBricksError);
+      await expect(client.search('test query')).rejects.toThrow('userId is required when using service token authentication');
+    });
+
+    it('should accept userId when searching with service token', async () => {
+      const response = { results: [], query: 'test query' };
+
+      nock(baseUrl)
+        .post('/memories/search', (body) => {
+          return body.query === 'test query' && body.user_id === 'user-123';
+        })
+        .reply(200, response);
+
+      const result = await client.search('test query', { userId: 'user-123' });
+      expect(result).toEqual(response);
+    });
+
+    it('should require userId for predictMemories with service token', async () => {
+      await expect(client.predictMemories({ context: 'test' })).rejects.toThrow(RecallBricksError);
+      await expect(client.predictMemories({ context: 'test' })).rejects.toThrow('userId is required when using service token authentication');
+    });
+
+    it('should accept userId for predictMemories with service token', async () => {
+      const response = { predictions: [] };
+
+      nock(baseUrl)
+        .post('/memories/predict', (body) => {
+          return body.user_id === 'user-123' && body.context === 'test';
+        })
+        .reply(200, response);
+
+      const result = await client.predictMemories({ userId: 'user-123', context: 'test' });
+      expect(result).toEqual(response);
+    });
+
+    it('should require userId for suggestMemories with service token', async () => {
+      await expect(client.suggestMemories('test context')).rejects.toThrow(RecallBricksError);
+      await expect(client.suggestMemories('test context')).rejects.toThrow('userId is required when using service token authentication');
+    });
+
+    it('should accept userId for suggestMemories with service token', async () => {
+      const response = { suggestions: [] };
+
+      nock(baseUrl)
+        .post('/memories/suggest', (body) => {
+          return body.context === 'test context' && body.user_id === 'user-123';
+        })
+        .reply(200, response);
+
+      const result = await client.suggestMemories('test context', { userId: 'user-123' });
+      expect(result).toEqual(response);
+    });
+
+    it('should require userId for searchWeighted with service token', async () => {
+      await expect(client.searchWeighted('test query')).rejects.toThrow(RecallBricksError);
+      await expect(client.searchWeighted('test query')).rejects.toThrow('userId is required when using service token authentication');
+    });
+
+    it('should accept userId for searchWeighted with service token', async () => {
+      const response = { results: [], query: 'test query' };
+
+      nock(baseUrl)
+        .post('/memories/search-weighted', (body) => {
+          return body.query === 'test query' && body.user_id === 'user-123';
+        })
+        .reply(200, response);
+
+      const result = await client.searchWeighted('test query', { userId: 'user-123' });
+      expect(result).toEqual(response);
+    });
+  });
+
+  describe('API Key Authentication (Backward Compatibility)', () => {
+    let client: RecallBricks;
+
+    beforeEach(() => {
+      client = new RecallBricks({ apiKey, baseUrl, maxRetries: 0 });
+    });
+
+    it('should work without userId when using API key', async () => {
+      const memory = { id: '123', text: 'test', created_at: '2025-01-01', updated_at: '2025-01-01' };
+
+      nock(baseUrl)
+        .post('/memories', (body) => {
+          return body.text === 'test' && !body.user_id;
+        })
+        .reply(200, memory);
+
+      const result = await client.createMemory('test');
+      expect(result).toEqual(memory);
+    });
+
+    it('should include X-API-Key header in requests', async () => {
+      const memory = { id: '123', text: 'test', created_at: '2025-01-01', updated_at: '2025-01-01' };
+
+      nock(baseUrl, {
+        reqheaders: {
+          'X-API-Key': apiKey,
+        },
+      })
+        .post('/memories')
+        .reply(200, memory);
+
+      await client.createMemory('test');
+      expect(nock.isDone()).toBe(true);
     });
   });
 });
