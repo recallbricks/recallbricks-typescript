@@ -24,6 +24,17 @@ import {
   SearchWeightedResponse,
 } from './types';
 
+// Autonomous Agent Features
+import { WorkingMemoryClient } from './autonomous/working-memory';
+import { ProspectiveMemoryClient } from './autonomous/prospective-memory';
+import { MetacognitionClient } from './autonomous/metacognition';
+import { MemoryTypesClient } from './autonomous/memory-types';
+import { GoalsClient } from './autonomous/goals';
+import { HealthClient } from './autonomous/health';
+import { UncertaintyClient } from './autonomous/uncertainty';
+import { ContextClient } from './autonomous/context';
+import { SearchClient } from './autonomous/search';
+
 /**
  * RecallBricks SDK Client
  *
@@ -48,6 +59,26 @@ export class RecallBricks {
   private readonly client: AxiosInstance;
   private readonly retryConfig: RetryConfig;
   private readonly usingServiceToken: boolean;
+
+  // Autonomous Agent Feature Clients
+  /** Working memory client for attention-based active memory */
+  public readonly workingMemory: WorkingMemoryClient;
+  /** Prospective memory client for "remember to remember" functionality */
+  public readonly prospectiveMemory: ProspectiveMemoryClient;
+  /** Metacognition client for self-assessment and performance tracking */
+  public readonly metacognition: MetacognitionClient;
+  /** Memory types client for episodic, semantic, and procedural memories */
+  public readonly memoryTypes: MemoryTypesClient;
+  /** Goals client for hierarchical objective tracking */
+  public readonly goals: GoalsClient;
+  /** Health client for memory maintenance and quality tracking */
+  public readonly health: HealthClient;
+  /** Uncertainty client for quantifying and tracking uncertainty */
+  public readonly uncertainty: UncertaintyClient;
+  /** Context client for intelligent context building */
+  public readonly context: ContextClient;
+  /** Search client for advanced hybrid search */
+  public readonly hybridSearch: SearchClient;
 
   /**
    * Creates a new RecallBricks client instance
@@ -98,6 +129,18 @@ export class RecallBricks {
       retryDelay: config.retryDelay || 1000,
       maxRetryDelay: config.maxRetryDelay || 10000,
     };
+
+    // Initialize Autonomous Agent Feature Clients
+    const authToken = config.apiKey || config.serviceToken!;
+    this.workingMemory = new WorkingMemoryClient({ apiKey: authToken, baseUrl });
+    this.prospectiveMemory = new ProspectiveMemoryClient({ apiKey: authToken, baseUrl });
+    this.metacognition = new MetacognitionClient({ apiKey: authToken, baseUrl });
+    this.memoryTypes = new MemoryTypesClient({ apiKey: authToken, baseUrl });
+    this.goals = new GoalsClient({ apiKey: authToken, baseUrl });
+    this.health = new HealthClient({ apiKey: authToken, baseUrl });
+    this.uncertainty = new UncertaintyClient({ apiKey: authToken, baseUrl });
+    this.context = new ContextClient({ apiKey: authToken, baseUrl });
+    this.hybridSearch = new SearchClient({ apiKey: authToken, baseUrl });
   }
 
   /**
@@ -700,6 +743,9 @@ export class RecallBricks {
 
 // Export all types
 export * from './types';
+
+// Export all autonomous agent types and clients
+export * from './autonomous';
 
 // Export as default as well
 export default RecallBricks;

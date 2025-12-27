@@ -10,6 +10,7 @@ Enterprise-grade TypeScript SDK for the RecallBricks API. Build intelligent memo
 - **Timeout Configuration**: Configurable request timeouts
 - **Production Ready**: 40+ tests covering unit, integration, edge cases, and security
 - **Zero Dependencies**: Only axios for HTTP requests
+- **Autonomous Agent Features**: Working memory, prospective memory, metacognition, and more
 
 ## Installation
 
@@ -369,6 +370,290 @@ async function getAllMemories() {
   return allMemories;
 }
 ```
+
+---
+
+## Autonomous Agent Features (v1.3.0+)
+
+The SDK includes specialized clients for building autonomous AI agents with human-like memory systems.
+
+### Working Memory
+
+Attention-based active memory with limited capacity, like human working memory.
+
+```typescript
+// Create a working memory session
+const session = await client.workingMemory.createSession({
+  namespace: 'task-planning',
+  capacity: 7,  // Miller's magic number
+  ttlSeconds: 3600,
+  agentId: 'agent-001'
+});
+
+// Add memories to working memory
+await client.workingMemory.addMemory(session.id, 'mem-456', {
+  priority: 8,
+  relevanceScore: 0.95,
+  tags: ['current-task', 'important']
+});
+
+// Promote important items
+await client.workingMemory.promote('item-789');
+
+// Auto-manage (evict low-priority, promote relevant)
+const result = await client.workingMemory.autoManage(session.id);
+console.log(`Evicted: ${result.summary.itemsEvicted}`);
+```
+
+### Prospective Memory
+
+"Remember to remember" - set intentions triggered by future events.
+
+```typescript
+// Create an intention to be triggered later
+const intention = await client.prospectiveMemory.create({
+  namespace: 'reminders',
+  description: 'Remind about project deadline when user mentions "status"',
+  triggers: [
+    { type: 'keyword', value: 'status' },
+    { type: 'time', value: '2025-01-15T09:00:00Z' }
+  ],
+  action: {
+    type: 'inject_context',
+    parameters: { memoryIds: ['mem-deadline'] }
+  },
+  priority: 8
+});
+
+// Check for triggered intentions
+const result = await client.prospectiveMemory.checkTriggers({
+  currentText: 'What is the project status?'
+});
+
+if (result.triggered.length > 0) {
+  // Handle triggered intentions
+  for (const intent of result.triggered) {
+    await client.prospectiveMemory.complete(intent.id);
+  }
+}
+```
+
+### Memory Types (Episodic, Semantic, Procedural)
+
+Three types of human-like memory for different kinds of knowledge.
+
+```typescript
+// Episodic: Specific events and experiences
+const episode = await client.memoryTypes.createEpisodic({
+  namespace: 'conversations',
+  content: 'User asked about weather in Paris',
+  entities: ['user-123', 'Paris', 'weather'],
+  emotionalValence: 0.3,
+  importance: 0.7
+});
+
+// Semantic: Facts and concepts
+const fact = await client.memoryTypes.createSemantic({
+  namespace: 'knowledge',
+  content: 'Paris is the capital of France',
+  category: 'geography',
+  confidence: 1.0,
+  relatedConcepts: ['France', 'Europe', 'capitals']
+});
+
+// Procedural: Skills and how-to knowledge
+const procedure = await client.memoryTypes.createProcedural({
+  namespace: 'workflows',
+  name: 'Handle API Errors',
+  description: 'Steps to handle API error responses',
+  steps: [
+    { order: 1, description: 'Log the error with context' },
+    { order: 2, description: 'Determine if retryable' },
+    { order: 3, description: 'Retry with backoff or return fallback' }
+  ],
+  triggers: ['API error', 'network failure']
+});
+
+// Query by type
+const recentEpisodes = await client.memoryTypes.getEpisodic({
+  entities: ['user-123'],
+  minImportance: 0.5,
+  limit: 10
+});
+```
+
+### Metacognition
+
+Self-assessment and performance tracking for agents.
+
+```typescript
+// Assess quality of agent output
+const assessment = await client.metacognition.assess({
+  agentId: 'agent-001',
+  content: 'The capital of France is Paris',
+  contentType: 'response',
+  selfScore: 0.95,
+  confidence: 0.9,
+  reasoning: 'Well-known factual information'
+});
+
+console.log(`Quality: ${assessment.qualityScore}`);
+console.log(`Calibration: ${assessment.calibrationScore}`);
+
+// Get performance metrics
+const performance = await client.metacognition.getPerformance('agent-001', {
+  days: 30
+});
+
+console.log(`Overall score: ${performance.overallScore}`);
+console.log(`Confidence correlation: ${performance.confidenceCorrelation}`);
+
+// Get actionable insights
+const insights = await client.metacognition.getInsights('agent-001', {
+  minImportance: 7
+});
+```
+
+### Goals
+
+Hierarchical objective tracking with milestones.
+
+```typescript
+// Create a goal with milestones
+const goal = await client.goals.create({
+  namespace: 'project-alpha',
+  title: 'Implement User Authentication',
+  description: 'Add secure auth with OAuth support',
+  type: 'achievement',
+  priority: 9,
+  milestones: [
+    { description: 'Design auth flow' },
+    { description: 'Implement OAuth provider' },
+    { description: 'Add session management' },
+    { description: 'Write tests' }
+  ],
+  successCriteria: ['All tests pass', 'Security review complete']
+});
+
+// Track progress
+const result = await client.goals.advance(goal.id, {
+  action: 'Completed OAuth integration',
+  milestoneId: 'milestone-2',
+  progressDelta: 25
+});
+
+if (result.goalCompleted) {
+  console.log('Goal achieved!');
+}
+
+// Get active goals
+const activeGoals = await client.goals.getActive('project-alpha');
+```
+
+### Uncertainty Quantification
+
+Know what you don't know - critical for autonomous decision-making.
+
+```typescript
+// Quantify uncertainty
+const result = await client.uncertainty.quantify({
+  agentId: 'agent-001',
+  content: 'Sales will increase 15% next quarter',
+  contentType: 'prediction',
+  selfConfidence: 0.75,
+  knownUnknowns: ['Market conditions', 'Competitor actions'],
+  assumptions: ['Economic stability', 'No major disruptions'],
+  evidence: [
+    { source: 'historical-data', strength: 0.8, description: '3 years of data' }
+  ]
+});
+
+console.log(`Uncertainty: ${result.uncertaintyScore}`);
+console.log(`Reliability: ${result.reliability}`);
+console.log(`Epistemic: ${result.epistemicUncertainty}`);
+console.log(`Aleatoric: ${result.aleatoricUncertainty}`);
+
+if (result.deferAction) {
+  console.log('Too uncertain - gather more information');
+  console.log('Suggested queries:', result.suggestedQueries);
+}
+```
+
+### Memory Health
+
+Maintain memory quality by identifying stale content.
+
+```typescript
+// Find stale memories
+const stale = await client.health.getStale('knowledge-base', 30, {
+  minImportance: 0.5
+});
+
+// Refresh memories that need updating
+for (const memory of stale.filter(m => m.recommendation === 'refresh')) {
+  await client.health.refresh(memory.id, 'scheduled-review');
+}
+
+// Get comprehensive health report
+const report = await client.health.getReport('production');
+console.log(`Health Score: ${report.metrics.healthScore}/100`);
+console.log(`Trend: ${report.trend.direction}`);
+```
+
+### Context Building
+
+Intelligently assemble context from multiple sources.
+
+```typescript
+// Build context for a query
+const context = await client.context.build({
+  namespace: 'customer-support',
+  query: 'Help user with billing issue',
+  maxTokens: 8000,
+  sources: [
+    { type: 'working_memory', config: { sessionId: 'current' }, weight: 2.0 },
+    { type: 'semantic', config: { category: 'billing' }, weight: 1.5 },
+    { type: 'episodic', config: { entities: ['user-123'] }, maxItems: 5 },
+    { type: 'procedural', config: { trigger: 'billing' } }
+  ],
+  includeProspective: true,
+  includeGoals: true
+});
+
+console.log(`Quality: ${context.qualityScore}`);
+console.log(`Tokens: ${context.totalTokens}/${context.totalTokens + context.tokensRemaining}`);
+
+// Use the formatted context
+const formattedContext = context.formattedContext;
+```
+
+### Hybrid Search
+
+Advanced search combining semantic, keyword, graph, and recency signals.
+
+```typescript
+const results = await client.hybridSearch.hybrid('payment processing error', {
+  namespace: 'support-tickets',
+  memoryTypes: ['episodic', 'semantic'],
+  semanticWeight: 0.5,
+  keywordWeight: 0.2,
+  graphWeight: 0.15,
+  recencyWeight: 0.15,
+  includeRelationships: true,
+  expandQuery: true,
+  rerank: true
+});
+
+console.log(`Found ${results.totalFound} results in ${results.searchDurationMs}ms`);
+
+results.results.forEach(r => {
+  console.log(`[${r.score.toFixed(3)}] ${r.content}`);
+  console.log(`  Semantic: ${r.componentScores.semantic.toFixed(2)}`);
+  console.log(`  Keyword: ${r.componentScores.keyword.toFixed(2)}`);
+});
+```
+
+---
 
 ## Error Handling
 
